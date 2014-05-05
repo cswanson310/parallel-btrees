@@ -29,6 +29,10 @@ btree new_node(bool leaf, bool root) {
 }
 
 void print_node(btree node) {
+  if (node->num_keys == 0) {
+    printf("node %d:[]", node);
+    return;
+  }
   printf("node %d:[", node);
   for(int i = 0; i < node->num_keys - 1; i++) {
     printf("%d,", node->keys[i]);
@@ -37,6 +41,10 @@ void print_node(btree node) {
 }
 
 void print_array(int* A, int N) {
+  if (N == 0) {
+    printf("[]\n");
+    return;
+  }
   printf("[");
   for(int i = 0; i < N-1; i++) {
     printf("%d,", A[i]);
@@ -45,6 +53,10 @@ void print_array(int* A, int N) {
 }
 
 void print_array(btree* A, int N) {
+  if (N == 0) {
+    printf("[]\n");
+    return;
+  }
   printf("[");
   for(int i = 0; i < N-1; i++) {
     printf("%d,", A[i]);
@@ -52,6 +64,10 @@ void print_array(btree* A, int N) {
   printf("%d]\n", A[N-1]);
 }
 void print_children(btree t) {
+  if (t->num_keys == 0) {
+    printf("[]\n");
+    return;
+  }
   printf("[");
   for(int i = 0; i < t->num_keys; i++) {
     printf("%d,", t->children[i]);
@@ -70,15 +86,18 @@ void print_tree(btree t, int depth) {
   }
   if (!t->is_leaf)
     print_tree(t->children[t->num_keys], depth + 1);
+  if(depth == 0) {
+    printf("\n");
+  }
 }
 
 void insert_just_key(int* old_keys, int* keys, int val) {
   int key_count = 0;
   for (int i = 0; i < 2*ORDER; i++) {
-    if (i > 0 && old_keys[i-1] < val && val <= old_keys[i]) {
+    if (key_count > 0 && old_keys[key_count-1] < val && val <= old_keys[key_count]) {
       keys[key_count] = val;
       key_count++;
-    } else if (i == 0 && val < old_keys[0]) {
+    } else if (key_count == 0 && val < old_keys[0]) {
       keys[0] = val;
       key_count++;
     }
@@ -99,6 +118,54 @@ void add_child(btree* children, int child_count, btree child, btree new_left, bt
   children[child_count] = child;
 }
 
+void insert_key_into_node(btree node, int key, btree left, btree right) {
+  //printf("inserting key (%d) into node: ", key);
+  //print_node(node);
+  int* new_keys = new int[2*ORDER];
+  btree* new_children = new btree[2*ORDER + 1];
+  int key_count = 0;
+  int child_count = 0;
+  for (int i = 0; i < node->num_keys; i++) {
+    if ((key_count > 0 && node->keys[key_count-1] < key && key <= node->keys[i]) ||
+        (key_count == 0 && key < node->keys[0])) {
+      //printf("1\n");
+      new_keys[key_count] = key;
+      key_count++;
+      new_children[child_count] = left;
+      left->parent = node;
+      child_count++;
+      new_children[child_count] = right;
+      right->parent = node;
+      child_count++;
+    } else {
+      //printf("2\n");
+      new_children[child_count] = node->children[i];
+      child_count++;
+    }
+    //printf("3\n");
+    new_keys[key_count] = node->keys[i];
+    key_count++;
+  }
+  if (key_count < node->num_keys+ 1) {
+    //printf("4\n");
+    new_keys[key_count] = key;
+    new_children[child_count] = left;
+    left->parent = node;
+    child_count++;
+    new_children[child_count] = right;
+    right->parent = node;
+  } else {
+    //printf("5\n");
+    new_children[child_count] = node->children[node->num_keys];
+    child_count++;
+  }
+  node->num_keys++;
+  memcpy(node->keys, new_keys, sizeof(int)*node->num_keys);
+  memcpy(node->children, new_children, sizeof(btree)*(node->num_keys+1));
+  //printf("done inserting!\n");
+  //print_tree(node, 0);
+}
+
 void insert_key_and_children(int* old_keys, int* keys,
                              btree* old_children, btree* children,
                              int val, btree left_child, btree right_child,
@@ -106,8 +173,8 @@ void insert_key_and_children(int* old_keys, int* keys,
   int key_count = 0;
   int child_count = 0;
   for (int i = 0; i < 2*ORDER; i++) {
-    if ((i > 0 && old_keys[i-1] < val && val <= old_keys[i]) ||
-        (i == 0 && val < old_keys[0])) {
+    if ((key_count > 0 && old_keys[key_count-1] < val && val <= old_keys[i]) ||
+        (key_count == 0 && val < old_keys[0])) {
       keys[key_count] = val;
       key_count++;
       add_child(children, child_count, left_child, new_left, new_right);
@@ -152,10 +219,7 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
       node->num_keys = 1;
     } else {
       /* at the root, but not full */
-      node->keys[node->num_keys] = key;
-      node->children[node->num_keys] = left_child;
-      node->children[node->num_keys + 1] = right_child;
-      node->num_keys++;
+      insert_key_into_node(node, key, left_child, right_child);
     }
   } else {
     /* not the root */
@@ -167,19 +231,17 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
       btree right = new_node(node->is_leaf, false);
       insert_key_and_children(node->keys, all_keys, node->children, all_children,
                               key, left_child, right_child, left, right);
-      memcpy(left->keys, all_keys, ORDER);
-      memcpy(left->children, all_children, ORDER+1);
+      memcpy(left->keys, all_keys, sizeof(int)*ORDER);
+      memcpy(left->children, all_children, sizeof(btree)*(ORDER+1));
       left->num_keys = ORDER;
-      memcpy(right->keys, &all_keys[ORDER + 1], ORDER);
-      memcpy(right->children, &all_children[ORDER + 1], ORDER + 1);
+      memcpy(right->keys, &all_keys[ORDER + 1], sizeof(int)*ORDER);
+      memcpy(right->children, &all_children[ORDER + 1], sizeof(btree)*(ORDER + 1));
       right->num_keys = ORDER;
       percolate_up(node->parent, all_keys[ORDER], left, right);
     } else {
       /* not full! Just add it */
-      node->keys[node->num_keys] = key;
-      node->children[node->num_keys] = left_child;
-      node->children[node->num_keys + 1] = right_child;
-      node->num_keys++;
+      /* actually need to find the right position for it... */
+      insert_key_into_node(node, key, left_child, right_child);
     }
   }
 }
@@ -209,10 +271,23 @@ void insert_key(btree t, int key) {
   if (t->is_leaf && !t->is_root) {
     if (t->num_keys < 2*ORDER) {
       /* there's room for another key here */
-      t->keys[t->num_keys] = key;
-      t->num_keys++;
+      insert_key_into_node(t, key, new_node(true, false), new_node(true, false));
     } else { /* we have to split */
       split(t, key);
+    }
+  } else if (t->is_leaf && t->is_root) {
+    if (t->num_keys < 2*ORDER) {
+      /* there's room for another key here */
+      insert_key_into_node(t, key, new_node(true, false), new_node(true, false));
+    } else { /* we have to split */
+      btree fake = new_node(true, false);
+      fake->parent = t;
+      memcpy(fake->keys, t->keys, sizeof(int)*t->num_keys);
+      memcpy(fake->children, t->children, sizeof(btree)*(t->num_keys+1));
+      fake->num_keys = t->num_keys;
+      t->num_keys = 0;
+      t->is_leaf = false;
+      split(fake, key);
     }
   } else {
     int i = 0;
@@ -249,9 +324,21 @@ btree create_test_tree() {
 
 int main() {
   btree root = create_test_tree();
-  print_tree(root, 0);
+  /*print_tree(root, 0);
   insert_key(root, 14);
   print_tree(root, 0);
   insert_key(root, 15);
   print_tree(root, 0);
+  insert_key(root, 0);
+  print_tree(root, 0);
+  insert_key(root, 8);
+  print_tree(root, 0);
+  insert_key(root, 8);
+  print_tree(root, 0);*/
+  root = new_node(true, true);
+  for (int i=0; i < 16;i++) {
+    insert_key(root, i);
+    printf("in main: \n");
+    print_tree(root, 0);
+  }
 }
