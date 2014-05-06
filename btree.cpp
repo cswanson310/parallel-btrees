@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstring>
+#include <assert.h>
 #include "def.h"
 
 struct node {
@@ -27,6 +28,8 @@ btree new_node(bool leaf, bool root) {
   n->num_keys = 0;
   return n;
 }
+
+/************************ PRINTING + HELPER FUNCTIONS ************************/
 
 void print_node(btree node) {
   if (node->num_keys == 0) {
@@ -91,6 +94,11 @@ void print_tree(btree t, int depth) {
   }
 }
 
+/************************ INSERTING + HELPER FUNCTIONS ************************/
+/*
+ * for a leaf node, insert just the key value into the keys. Don't worry about
+ * the children
+ */
 void insert_just_key(int* old_keys, int* keys, int val) {
   int key_count = 0;
   for (int i = 0; i < 2*ORDER; i++) {
@@ -109,18 +117,11 @@ void insert_just_key(int* old_keys, int* keys, int val) {
   }
 }
 
-void add_child(btree* children, int child_count, btree child, btree new_left, btree new_right) {
-  if (child_count < ORDER + 1) {
-    child->parent = new_left;
-  } else {
-    child->parent = new_right;
-  }
-  children[child_count] = child;
-}
-
+/*
+ * will insert the new key, and the surrounding pointers to children in the
+ * correct positions. Obviously, it has to preserve the order
+ */
 void insert_key_into_node(btree node, int key, btree left, btree right) {
-  //printf("inserting key (%d) into node: ", key);
-  //print_node(node);
   int* new_keys = new int[2*ORDER];
   btree* new_children = new btree[2*ORDER + 1];
   int key_count = 0;
@@ -128,7 +129,8 @@ void insert_key_into_node(btree node, int key, btree left, btree right) {
   for (int i = 0; i < node->num_keys; i++) {
     if ((key_count > 0 && node->keys[key_count-1] < key && key <= node->keys[i]) ||
         (key_count == 0 && key < node->keys[0])) {
-      //printf("1\n");
+      /* the key goes in between these elements, so add it there, pointing
+       * to the new children */
       new_keys[key_count] = key;
       key_count++;
       new_children[child_count] = left;
@@ -138,16 +140,15 @@ void insert_key_into_node(btree node, int key, btree left, btree right) {
       right->parent = node;
       child_count++;
     } else {
-      //printf("2\n");
+      /* else here b/c we want to overwrite the old value if it's been split */
       new_children[child_count] = node->children[i];
       child_count++;
     }
-    //printf("3\n");
     new_keys[key_count] = node->keys[i];
     key_count++;
   }
   if (key_count < node->num_keys+ 1) {
-    //printf("4\n");
+    /* we haven't inserted it yet! So put it at the end */
     new_keys[key_count] = key;
     new_children[child_count] = left;
     left->parent = node;
@@ -155,37 +156,53 @@ void insert_key_into_node(btree node, int key, btree left, btree right) {
     new_children[child_count] = right;
     right->parent = node;
   } else {
-    //printf("5\n");
+    /* otherwise, we still need to add the last child pointer */
     new_children[child_count] = node->children[node->num_keys];
     child_count++;
   }
   node->num_keys++;
   memcpy(node->keys, new_keys, sizeof(int)*node->num_keys);
   memcpy(node->children, new_children, sizeof(btree)*(node->num_keys+1));
-  //printf("done inserting!\n");
-  //print_tree(node, 0);
 }
 
-void insert_key_and_children(int* old_keys, int* keys,
-                             btree* old_children, btree* children,
-                             int val, btree left_child, btree right_child,
-                             btree new_left, btree new_right) {
+/*
+ * when splitting a node, decide which child should point to this child.
+ */
+void add_child(btree* children, int child_count, btree child, btree new_left, btree new_right) {
+  if (child_count < ORDER + 1) {
+    child->parent = new_left;
+  } else {
+    child->parent = new_right;
+  }
+  children[child_count] = child;
+}
+
+/*
+ * in the case where we have to split a node, determine where to split,
+ * and properly distribute the children pointers between the two new nodes
+ */
+void split_node(int* old_keys, int* keys,
+                btree* old_children, btree* children,
+                int val, btree left_child, btree right_child,
+                btree new_left, btree new_right) {
   int key_count = 0;
   int child_count = 0;
   for (int i = 0; i < 2*ORDER; i++) {
     if ((key_count > 0 && old_keys[key_count-1] < val && val <= old_keys[i]) ||
         (key_count == 0 && val < old_keys[0])) {
+      /* this is where the key goes, so add it and the two child pointers here */
       keys[key_count] = val;
       key_count++;
       add_child(children, child_count, left_child, new_left, new_right);
       child_count++;
       add_child(children, child_count, right_child, new_left, new_right);
       child_count++;
+    } else {
+      add_child(children, child_count, old_children[i], new_left, new_right);
+      child_count++;
     }
     keys[key_count] = old_keys[i];
     key_count++;
-    add_child(children, child_count, old_children[i], new_left, new_right);
-    child_count++;
   }
   if (key_count < 2*ORDER + 1) {
     keys[key_count] = val;
@@ -195,6 +212,10 @@ void insert_key_and_children(int* old_keys, int* keys,
   }
 }
 
+/*
+ * the main tricky part of insertion. node has been passed a key to insert,
+ * either insert it if there's room, or split and percolate it up
+ */
 void percolate_up(btree node, int key, btree left_child, btree right_child) {
   if (node->is_root) {
     if (node->num_keys == 2*ORDER) {
@@ -203,7 +224,7 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
       btree right = new_node(node->is_leaf, false);
       int* all_keys = new int[2*ORDER + 1];
       btree* all_children = new btree[2*ORDER + 2];
-      insert_key_and_children(node->keys, all_keys, node->children, all_children,
+      split_node(node->keys, all_keys, node->children, all_children,
                               key, left_child, right_child, left, right);
       left->parent = node;
       right->parent = node;
@@ -229,7 +250,7 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
       btree* all_children = new btree[2*ORDER + 2];
       btree left = new_node(node->is_leaf, false);
       btree right = new_node(node->is_leaf, false);
-      insert_key_and_children(node->keys, all_keys, node->children, all_children,
+      split_node(node->keys, all_keys, node->children, all_children,
                               key, left_child, right_child, left, right);
       memcpy(left->keys, all_keys, sizeof(int)*ORDER);
       memcpy(left->children, all_children, sizeof(btree)*(ORDER+1));
@@ -240,7 +261,6 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
       percolate_up(node->parent, all_keys[ORDER], left, right);
     } else {
       /* not full! Just add it */
-      /* actually need to find the right position for it... */
       insert_key_into_node(node, key, left_child, right_child);
     }
   }
@@ -267,6 +287,10 @@ void split(btree node, int key) {
   percolate_up(node->parent, all_keys[ORDER], left, right);
 }
 
+/*
+ * the main function for insertion. Find the place we need to insert it,
+ * then either put it in, or do a split
+ */
 void insert_key(btree t, int key) {
   if (t->is_leaf && !t->is_root) {
     if (t->num_keys < 2*ORDER) {
@@ -298,6 +322,51 @@ void insert_key(btree t, int key) {
   }
 }
 
+/******************************* SEARCHING *******************************/
+
+/*
+ * the main function for deletion. If the key is in the tree, delete it
+ * returns true for success, false if the key was not there
+ */
+bool contains_key(btree t, int key) {
+  int i = 0;
+  while (i < t->num_keys && key > t->keys[i]) {
+    i++;
+  }
+  /* here i == t->num_keys || key <= keys[i] */
+  if (i == t->num_keys) {
+    if (!t->is_leaf) {
+      /* there are children, search them */
+      return contains_key(t->children[t->num_keys], key);
+    } else {
+      /* got to the end of a leaf, and didn't find it */
+      return false;
+    }
+  } else {
+    if (key == t->keys[i]) {
+      return true;
+    } else {
+      /* keys[i-1] < key < keys[i] */
+      if(!t->is_leaf) {
+        /* there are children, search them */
+        return contains_key(t->children[i], key);
+      } else {
+        /* this is a leaf, and it's not here :( */
+        return false;
+      }
+    }
+  }
+}
+
+/*
+ * creates this tree:
+ *   1
+ *   3
+ * 6
+ *   7
+ * 9
+ *   13
+ */
 btree create_test_tree() {
   btree root = new_node(false, true);
   root->keys[0] = 6;
@@ -323,18 +392,90 @@ btree create_test_tree() {
 }
 
 int main() {
+  char cmd[MAXWORDSIZE];		/* string to hold a command */
+  int key;
+  bool result;
+  bool goOn = true;
+  btree t = new_node(true, true);
+  while( goOn) {
+    printf("\n\t*** These are your commands .........\n");
+    //printf("\t\"C\" to scan the tree\n");
+    printf("\t\"i\" to insert\n");
+    //printf("\t\"gte\" to search and print elements greater than or equal to the key\n");
+    //printf("\t\"lte\" to search and print elements less than or equal to the key\n");
+    printf("\t\"s\" to search, and print the key\n");
+    printf("\t\"T\" to print the btree in inorder format\n");
+    printf("\t\"x\" to exit\n");
+    scanf("%s", cmd);
+    assert( strlen(cmd) < MAXWORDSIZE);
+    switch( cmd[0]) {
+    /*case 'C':
+        printf("\n*** Scanning... \n");
+        scanTree(printOcc);
+        break;*/
+    case 'i':
+        printf("\nEnter key for insertion\n");
+        scanf("%d", &key);
+        printf("\n*** Inserting %d\n", key);
+        insert_key(t,key);
+        break;
+    case 's':
+        printf("enter search-key: ");
+        scanf("%d", &key);
+        printf("\n*** Searching for key...%d", key);
+        result = contains_key(t, key);
+        printf("%d\n", result);
+        break;
+    /*case 'S':
+        printf("enter search-word: ");
+        scanf("%s", word);
+        assert( strlen(word) < MAXWORDSIZE);
+        printf("\n*** Searching for word %s \n", word);
+        search(word, TRUE);
+        printf("%d pages read\n", btReadCount);
+        btReadCount = 0;
+        break;
+    case 'P':
+        printf("enter search-prefix: ");
+        scanf("%s", word);
+        assert( strlen(word) < MAXWORDSIZE);
+        printf("\n*** Searching for prefix %s \n", word);
+        prefix_search(word, TRUE);
+        printf("%d pages read\n", btReadCount);
+        btReadCount = 0;
+        break;
+    case 'M':
+        printf("enter search-substring: ");
+        scanf("%s", word);
+        assert( strlen(word) < MAXWORDSIZE);
+        printf("\n*** Searching for substring %s \n", word);
+        ss_search(word, TRUE);
+        printf("%d pages read\n", btReadCount);
+        btReadCount = 0;
+        break;
+    case 'p':
+        printf("pagenumber=?\n");
+        scanf("%s", cmd);
+        assert( strlen(cmd) < MAXWORDSIZE);
+        i = (PAGENO) atoi(cmd);
+        printPage(i,fpbtree);
+        break;
+    */
+    case 'T':
+        printf("\n*** Printing tree in order .........\n");
+        print_tree(t,0);
+        break;
+    case 'x':
+        printf("\n*** Exiting .........\n");
+        goOn = false;
+        break;
+    default:
+        printf("\n*** Illegal command \"%s\"\n", cmd);
+        break;
+    }
+  }
+
   btree root = create_test_tree();
-  /*print_tree(root, 0);
-  insert_key(root, 14);
-  print_tree(root, 0);
-  insert_key(root, 15);
-  print_tree(root, 0);
-  insert_key(root, 0);
-  print_tree(root, 0);
-  insert_key(root, 8);
-  print_tree(root, 0);
-  insert_key(root, 8);
-  print_tree(root, 0);*/
   root = new_node(true, true);
   for (int i=0; i < 16;i++) {
     insert_key(root, i);

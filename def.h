@@ -3,3 +3,5 @@
  */
 
 #define ORDER 1
+
+#define MAXWORDSIZE 3
