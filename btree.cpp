@@ -422,7 +422,7 @@ int main() {
     case 's':
         printf("enter search-key: ");
         scanf("%d", &key);
-        printf("\n*** Searching for key...%d", key);
+        printf("\n*** Searching for %d...", key);
         result = contains_key(t, key);
         printf("%d\n", result);
         break;
@@ -473,13 +473,5 @@ int main() {
         printf("\n*** Illegal command \"%s\"\n", cmd);
         break;
     }
-  }
-
-  btree root = create_test_tree();
-  root = new_node(true, true);
-  for (int i=0; i < 16;i++) {
-    insert_key(root, i);
-    printf("in main: \n");
-    print_tree(root, 0);
   }
 }
