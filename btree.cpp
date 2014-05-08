@@ -479,11 +479,9 @@ void process_file(std::string filename, btree t, bool* results) {
     while (getline(file, line)) {
       switch(line[0]) {
         case 'i':
-          printf("inserting %d\n", std::stoi(&line[2]));
           insert_key(t, std::stoi(&line[2]));
           break;
         case 's':
-          printf("searching for %d\n", std::stoi(&line[2]));
           result = contains_key(t, std::stoi(&line[2]));
           results[searches] = result;
           searches++;
