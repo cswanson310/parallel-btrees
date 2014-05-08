@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdio>
 #include <cstring>
 #include <assert.h>
 #include "def.h"
@@ -33,38 +34,38 @@ btree new_node(bool leaf, bool root) {
 
 void print_node(btree node) {
   if (node->num_keys == 0) {
-    printf("node %d:[]", node);
+    /* printf("node %d:[]", node); */
     return;
   }
-  printf("node %d:[", node);
+  /* printf("node %d:[", node); */
   for(int i = 0; i < node->num_keys - 1; i++) {
     printf("%d,", node->keys[i]);
   }
   printf("%d]\n", node->keys[node->num_keys-1]);
 }
 
-void print_array(int* A, int N) {
-  if (N == 0) {
+void print_array(int* a, int n) {
+  if (n == 0) {
     printf("[]\n");
     return;
   }
   printf("[");
-  for(int i = 0; i < N-1; i++) {
-    printf("%d,", A[i]);
+  for(int i = 0; i < n-1; i++) {
+    printf("%d,", a[i]);
   }
-  printf("%d]\n", A[N-1]);
+  printf("%d]\n", a[n-1]);
 }
 
-void print_array(btree* A, int N) {
-  if (N == 0) {
+void print_array(btree* a, int n) {
+  if (n == 0) {
     printf("[]\n");
     return;
   }
   printf("[");
-  for(int i = 0; i < N-1; i++) {
-    printf("%d,", A[i]);
+  for(int i = 0; i < n-1; i++) {
+    //printf("%d,", a[i]);
   }
-  printf("%d]\n", A[N-1]);
+  /* printf("%d]\n", a[n-1]); */
 }
 void print_children(btree t) {
   if (t->num_keys == 0) {
@@ -73,9 +74,9 @@ void print_children(btree t) {
   }
   printf("[");
   for(int i = 0; i < t->num_keys; i++) {
-    printf("%d,", t->children[i]);
+    //printf("%d,", t->children[i]);
   }
-  printf("%d]\n", t->children[t->num_keys]);
+  //printf("%d]\n", t->children[t->num_keys]);
 }
 
 void print_tree(btree t, int depth) {
@@ -150,16 +151,19 @@ void insert_key_into_node(btree node, int key, btree left, btree right) {
   if (key_count < node->num_keys+ 1) {
     /* we haven't inserted it yet! So put it at the end */
     new_keys[key_count] = key;
+    key_count++;
     new_children[child_count] = left;
     left->parent = node;
     child_count++;
     new_children[child_count] = right;
+    child_count++;
     right->parent = node;
   } else {
     /* otherwise, we still need to add the last child pointer */
     new_children[child_count] = node->children[node->num_keys];
     child_count++;
   }
+  assert(child_count == key_count + 1);
   node->num_keys++;
   memcpy(node->keys, new_keys, sizeof(int)*node->num_keys);
   memcpy(node->children, new_children, sizeof(btree)*(node->num_keys+1));
@@ -206,10 +210,16 @@ void split_node(int* old_keys, int* keys,
   }
   if (key_count < 2*ORDER + 1) {
     keys[key_count] = val;
+    key_count++;
     add_child(children, child_count, left_child, new_left, new_right);
     child_count++;
     add_child(children, child_count, right_child, new_left, new_right);
+    child_count++;
+  } else if (child_count != key_count + 1) {
+    add_child(children, child_count, old_children[2*ORDER], new_left, new_right);
+    child_count++;
   }
+  assert(key_count + 1 == child_count);
 }
 
 /*
@@ -358,6 +368,32 @@ bool contains_key(btree t, int key) {
   }
 }
 
+/****************************** COMPARING (EQ) *******************************/
+
+/*
+ * return true if t1 is a subset of t2, and false otherwise
+ */
+bool tree_subset(btree t1, btree t2) {
+  for (int i = 0; i < t1->num_keys; i++) {
+    if (!contains_key(t2, t1->keys[i])) {
+      return false;
+    }
+    if (!t1->is_leaf && !tree_subset(t1->children[i], t2)) {
+      return false;
+    }
+  }
+  if (!t1->is_leaf && !tree_subset(t1->children[t1->num_keys], t2)) {
+    return false;
+  }
+  return true;
+}
+
+/*
+ * takes two trees, and returns true if they are equal, false otherwise
+ */
+bool tree_eq(btree t1, btree t2) {
+  return tree_subset(t1, t2) && tree_subset(t2, t1);
+}
 /*
  * creates this tree:
  *   1
@@ -391,13 +427,30 @@ btree create_test_tree() {
   return root;
 }
 
+void test_eq(int trials) {
+  btree t1 = new_node(true, true);
+  btree t2 = new_node(true, true);
+  int key;
+  for (int i = 0; i < trials; i++) {
+    key = rand() % 1000;
+    insert_key(t1, key);
+    assert(contains_key(t1, key));
+    insert_key(t2, key);
+    assert(contains_key(t2, key));
+  }
+  assert(tree_eq(t1, t2));
+  insert_key(t1, 1001);
+  assert(!tree_eq(t1, t2));
+}
+
 int main() {
+  test_eq(1000);
   char cmd[MAXWORDSIZE];		/* string to hold a command */
   int key;
   bool result;
   bool goOn = true;
   btree t = new_node(true, true);
-  while( goOn) {
+  while(goOn) {
     printf("\n\t*** These are your commands .........\n");
     //printf("\t\"C\" to scan the tree\n");
     printf("\t\"i\" to insert\n");
