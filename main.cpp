@@ -12,6 +12,7 @@
 #include "def.h"
 #include <sys/types.h>
 #include <pthread.h>
+#include "CycleTimer.h"
 
 /****************************** HELPERS *******************************/
 
@@ -140,9 +141,13 @@ void process_file(std::string filename, btree t) {
 
 bool test_from_file(std::string filename) {
   btree t1 = new_node(true, true);
+  double start_time = CycleTimer::currentSeconds();
   lockable_tree t2 = new_tree();
   process_file(filename, t1);
+  double mid_time = CycleTimer::currentSeconds();
   multi_process_file(filename, t2, 4);
+  double end_time = CycleTimer::currentSeconds();
+  printf("single thread: %0.4f sec, multi thread: %0.4f sec\n", mid_time - start_time, end_time - mid_time);
   return tree_eq(t1, t2->root);
 }
 
