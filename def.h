@@ -4,4 +4,4 @@
 
 #define ORDER 1
 
-#define MAXWORDSIZE 3
+#define MAXWORDSIZE 100

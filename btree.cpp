@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cstdio>
+#include <iostream>
+#include <fstream>
 #include <cstring>
 #include <assert.h>
 #include "def.h"
@@ -216,6 +218,7 @@ void split_node(int* old_keys, int* keys,
     add_child(children, child_count, right_child, new_left, new_right);
     child_count++;
   } else if (child_count != key_count + 1) {
+    // skipped over one, need to add the last one
     add_child(children, child_count, old_children[2*ORDER], new_left, new_right);
     child_count++;
   }
@@ -443,9 +446,81 @@ void test_eq(int trials) {
   assert(!tree_eq(t1, t2));
 }
 
+/*
+ * simply return the number of search requests, so we can know the number to
+ * expect, to test if the results are the same
+ */
+int num_searches(std::string filename) {
+  std::ifstream file;
+  std::string line;
+  file.open(filename);
+  int count = 0;
+  if (file.is_open()){
+    while (getline(file, line)) {
+      if (line[0] == 's') {
+        count++;
+      }
+    }
+    file.close();
+  } else {
+    printf("Something went wrong... try again\n");
+    assert(false);
+  }
+  return count;
+}
+
+void process_file(std::string filename, btree t, bool* results) {
+  std::ifstream file;
+  std::string line;
+  file.open(filename);
+  int searches = 0;
+  bool result;
+  if (file.is_open()){
+    while (getline(file, line)) {
+      switch(line[0]) {
+        case 'i':
+          printf("inserting %d\n", std::stoi(&line[2]));
+          insert_key(t, std::stoi(&line[2]));
+          break;
+        case 's':
+          printf("searching for %d\n", std::stoi(&line[2]));
+          result = contains_key(t, std::stoi(&line[2]));
+          results[searches] = result;
+          searches++;
+          break;
+        default:
+          printf("whaaat?\n");
+      }
+    }
+    file.close();
+  } else {
+    printf("Something went wrong... try again\n");
+  }
+}
+
+bool test_from_file(std::string filename) {
+  btree t1 = new_node(true, true);
+  btree t2 = new_node(true, true);
+  int searches = num_searches(filename);
+  bool* results1 = new bool[searches];
+  bool* results2 = new bool[searches];
+  printf("searching %d times...\n", searches);
+  process_file(filename, t1, results1);
+  process_file(filename, t2, results2);
+  for (int i = 0; i < searches; i++) {
+    if (results1[i] != results2[i]) {
+      printf("results differ!\n");
+      return false;
+    }
+  }
+  return tree_eq(t1, t2);
+}
+
 int main() {
   test_eq(1000);
   char cmd[MAXWORDSIZE];		/* string to hold a command */
+  char filename[MAXWORDSIZE];   /* string to hold a filename */
+  std::ifstream file;
   int key;
   bool result;
   bool goOn = true;
@@ -458,6 +533,7 @@ int main() {
     //printf("\t\"lte\" to search and print elements less than or equal to the key\n");
     printf("\t\"s\" to search, and print the key\n");
     printf("\t\"T\" to print the btree in inorder format\n");
+    printf("\t\"t\" to test, reading input data from a file\n");
     printf("\t\"x\" to exit\n");
     scanf("%s", cmd);
     assert( strlen(cmd) < MAXWORDSIZE);
@@ -467,18 +543,18 @@ int main() {
         scanTree(printOcc);
         break;*/
     case 'i':
-        printf("\nEnter key for insertion\n");
-        scanf("%d", &key);
-        printf("\n*** Inserting %d\n", key);
-        insert_key(t,key);
-        break;
+      printf("\nEnter key for insertion\n");
+      scanf("%d", &key);
+      printf("\n*** Inserting %d\n", key);
+      insert_key(t,key);
+      break;
     case 's':
-        printf("enter search-key: ");
-        scanf("%d", &key);
-        printf("\n*** Searching for %d...", key);
-        result = contains_key(t, key);
-        printf("%d\n", result);
-        break;
+      printf("enter search-key: ");
+      scanf("%d", &key);
+      printf("\n*** Searching for %d...", key);
+      result = contains_key(t, key);
+      printf("%d\n", result);
+      break;
     /*case 'S':
         printf("enter search-word: ");
         scanf("%s", word);
@@ -515,16 +591,22 @@ int main() {
         break;
     */
     case 'T':
-        printf("\n*** Printing tree in order .........\n");
-        print_tree(t,0);
-        break;
+      printf("\n*** Printing tree in order .........\n");
+      print_tree(t,0);
+      break;
+    case 't':
+      printf("enter test file: ");
+      scanf("%s", filename);
+      assert(test_from_file(filename));
+      printf("results matched!\n");
+      break;
     case 'x':
-        printf("\n*** Exiting .........\n");
-        goOn = false;
-        break;
+      printf("\n*** Exiting .........\n");
+      goOn = false;
+      break;
     default:
-        printf("\n*** Illegal command \"%s\"\n", cmd);
-        break;
+      printf("\n*** Illegal command \"%s\"\n", cmd);
+      break;
     }
   }
 }
