@@ -8,9 +8,109 @@
 #include <cstring>
 #include <assert.h>
 #include "btree.h"
+#include "global_locked.h"
 #include "def.h"
+#include <sys/types.h>
+#include <pthread.h>
 
 /****************************** HELPERS *******************************/
+
+typedef struct {
+  int proc_id;
+  int num_procs;
+  lockable_tree t;
+  std::string filename;
+} proc_args;
+
+/*
+ * simple, calculate the number of lines in a file
+ */
+int num_lines(std::string filename) {
+  std::ifstream file;
+  std::string line;
+  file.open(filename);
+  int count = 0;
+  if (file.is_open()){
+    while (getline(file, line)) {
+      count++;
+    }
+    file.close();
+  } else {
+    printf("Something went wrong... try again\n");
+  }
+  return count;
+}
+
+/*
+ * basically just case on insert or search, and do the appropriate op
+ */
+void process_line(lockable_tree t, std::string line) {
+  switch (line[0]) {
+    case 'i':
+      insert_key(t, std::stoi(&line[2]));
+      break;
+    case 's':
+      contains_key(t, std::stoi(&line[2]));
+      break;
+    default:
+      printf("whaaat?\n");
+  }
+}
+
+/*
+ * for each pthread, process the part of the file that has to do with them
+ */
+void* process_file(void* args) {
+  proc_args* p_args = (proc_args *)args;
+  std::string filename = p_args->filename;
+  lockable_tree t = p_args->t;
+  int num_processors = p_args->num_procs;
+  int proc_id = p_args->proc_id;
+  std::ifstream file;
+  std::string line;
+  file.open(filename);
+  int i = 0;
+  if (file.is_open()){
+    while (getline(file, line)) {
+      if (i%num_processors == proc_id) {
+        process_line(t, line);
+      }
+      i++;
+    }
+    file.close();
+  } else {
+    printf("Something went wrong... try again\n");
+  }
+
+}
+
+/*
+ * process the file with multiple processors, where each processor takes
+ * the portion of lines that pertain to them
+ */
+void multi_process_file(std::string filename, lockable_tree t, int processors) {
+  proc_args* args = new proc_args[processors];
+  pthread_t* threads = new pthread_t[processors];
+  pthread_attr_t pthread_custom_attr;
+
+  for (int i = 0; i < processors; i++) {
+    args[i].proc_id = i;
+    args[i].num_procs = processors;
+    args[i].t = t;
+    args[i].filename = filename;
+  }
+  pthread_attr_init(&pthread_custom_attr);
+
+  for (int i = 1; i < processors; i++) {
+    pthread_create(&threads[i], &pthread_custom_attr, process_file, (void *)(args+i));
+  }
+
+  process_file((void *)(args));
+
+  for (int i = 1; i < processors; i++) {
+    pthread_join(threads[i], 0);
+  }
+}
 
 /*
  * takes a filename, reads the file and processes it line by line
@@ -40,10 +140,10 @@ void process_file(std::string filename, btree t) {
 
 bool test_from_file(std::string filename) {
   btree t1 = new_node(true, true);
-  btree t2 = new_node(true, true);
+  lockable_tree t2 = new_tree();
   process_file(filename, t1);
-  process_file(filename, t2);
-  return tree_eq(t1, t2);
+  multi_process_file(filename, t2, 4);
+  return tree_eq(t1, t2->root);
 }
 
 void test_eq(int trials) {
