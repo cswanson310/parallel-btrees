@@ -7,12 +7,13 @@
 #include <fstream>
 #include <cstring>
 #include <assert.h>
+#include "def.h"
 #include "btree.h"
 #include "global_locked.h"
-#include "def.h"
 #include <sys/types.h>
 #include <pthread.h>
 #include "CycleTimer.h"
+#include "fine_lock.h"
 
 /****************************** HELPERS *******************************/
 
@@ -22,6 +23,13 @@ typedef struct {
   lockable_tree t;
   std::string filename;
 } proc_args;
+
+typedef struct {
+  int proc_id;
+  int num_procs;
+  fine_btree t;
+  std::string filename;
+} proc_args_fine;
 
 /*
  * simple, calculate the number of lines in a file
@@ -59,9 +67,52 @@ void process_line(lockable_tree t, std::string line) {
 }
 
 /*
+ * basically just case on insert or search, and do the appropriate op
+ */
+void process_line(fine_btree t, std::string line) {
+  switch (line[0]) {
+    case 'i':
+      insert_key(t, std::stoi(&line[2]));
+      break;
+    case 's':
+      contains_key(t, std::stoi(&line[2]));
+      break;
+    default:
+      printf("whaaat?\n");
+  }
+}
+
+/*
  * for each pthread, process the part of the file that has to do with them
  */
-void* process_file(void* args) {
+void* process_file_fine(void* args) {
+  proc_args_fine* p_args = (proc_args_fine *)args;
+  std::string filename = p_args->filename;
+  fine_btree t = p_args->t;
+  int num_processors = p_args->num_procs;
+  int proc_id = p_args->proc_id;
+  std::ifstream file;
+  std::string line;
+  file.open(filename);
+  int i = 0;
+  if (file.is_open()){
+    while (getline(file, line)) {
+      if (i%num_processors == proc_id) {
+        process_line(t, line);
+      }
+      i++;
+    }
+    file.close();
+  } else {
+    printf("Something went wrong... try again\n");
+  }
+
+}
+
+/*
+ * for each pthread, process the part of the file that has to do with them
+ */
+void* process_file_global(void* args) {
   proc_args* p_args = (proc_args *)args;
   std::string filename = p_args->filename;
   lockable_tree t = p_args->t;
@@ -89,7 +140,35 @@ void* process_file(void* args) {
  * process the file with multiple processors, where each processor takes
  * the portion of lines that pertain to them
  */
-void multi_process_file(std::string filename, lockable_tree t, int processors) {
+void multi_process_file_fine(std::string filename, fine_btree t, int processors) {
+  proc_args_fine* args = new proc_args_fine[processors];
+  pthread_t* threads = new pthread_t[processors];
+  pthread_attr_t pthread_custom_attr;
+
+  for (int i = 0; i < processors; i++) {
+    args[i].proc_id = i;
+    args[i].num_procs = processors;
+    args[i].t = t;
+    args[i].filename = filename;
+  }
+  pthread_attr_init(&pthread_custom_attr);
+
+  for (int i = 1; i < processors; i++) {
+    pthread_create(&threads[i], &pthread_custom_attr, process_file_fine, (void *)(args+i));
+  }
+
+  process_file_fine((void *)(args));
+
+  for (int i = 1; i < processors; i++) {
+    pthread_join(threads[i], 0);
+  }
+}
+
+/*
+ * process the file with multiple processors, where each processor takes
+ * the portion of lines that pertain to them
+ */
+void multi_process_file_global(std::string filename, lockable_tree t, int processors) {
   proc_args* args = new proc_args[processors];
   pthread_t* threads = new pthread_t[processors];
   pthread_attr_t pthread_custom_attr;
@@ -103,10 +182,10 @@ void multi_process_file(std::string filename, lockable_tree t, int processors) {
   pthread_attr_init(&pthread_custom_attr);
 
   for (int i = 1; i < processors; i++) {
-    pthread_create(&threads[i], &pthread_custom_attr, process_file, (void *)(args+i));
+    pthread_create(&threads[i], &pthread_custom_attr, process_file_global, (void *)(args+i));
   }
 
-  process_file((void *)(args));
+  process_file_global((void *)(args));
 
   for (int i = 1; i < processors; i++) {
     pthread_join(threads[i], 0);
@@ -141,19 +220,26 @@ void process_file(std::string filename, btree t) {
 
 bool test_from_file(std::string filename) {
   btree t1 = new_node(true, true);
-  double start_time = CycleTimer::currentSeconds();
   lockable_tree t2 = new_tree();
+  fine_btree t3 = new_fine_node(true, true);
+  double start_time = CycleTimer::currentSeconds();
   process_file(filename, t1);
-  double mid_time = CycleTimer::currentSeconds();
-  multi_process_file(filename, t2, 4);
+  double mid_time1 = CycleTimer::currentSeconds();
+  multi_process_file_global(filename, t2, 4);
+  double mid_time2 = CycleTimer::currentSeconds();
+  multi_process_file_fine(filename, t3, 4);
   double end_time = CycleTimer::currentSeconds();
-  printf("single thread: %0.4f sec, multi thread: %0.4f sec\n", mid_time - start_time, end_time - mid_time);
-  return tree_eq(t1, t2->root);
+  printf("single thread: %0.4f sec, coarse lock threaded: %0.4f sec, fine lock threaded: %0.4f sec\n",
+      mid_time1 - start_time,
+      mid_time2 - mid_time1,
+      end_time - mid_time2);
+  return tree_eq(t1, t2->root) && tree_eq(t1, to_btree(t3));
 }
 
 void test_eq(int trials) {
   btree t1 = new_node(true, true);
   btree t2 = new_node(true, true);
+  fine_btree t3 = new_fine_node(true, true);
   int key;
   for (int i = 0; i < trials; i++) {
     key = rand() % 1000;
@@ -161,8 +247,11 @@ void test_eq(int trials) {
     assert(contains_key(t1, key));
     insert_key(t2, key);
     assert(contains_key(t2, key));
+    insert_key(t3, key);
+    assert(contains_key(t3, key));
   }
   assert(tree_eq(t1, t2));
+  assert(tree_eq(t1, to_btree(t3)));
   insert_key(t1, 1001);
   assert(!tree_eq(t1, t2));
 }

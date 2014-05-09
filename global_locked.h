@@ -1,11 +1,5 @@
 #include <mutex>
-
-struct root_lock {
-  std::mutex lock;
-  btree root;
-};
-
-typedef struct root_lock* lockable_tree;
+#include "def.h"
 
 lockable_tree new_tree();
 

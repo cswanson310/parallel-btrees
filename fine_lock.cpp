@@ -1,14 +1,11 @@
-#include <cstdio>
+#include "fine_lock.h"
+#include "btree.h"
 #include <cstring>
 #include <assert.h>
-#include "def.h"
-#include "btree.h"
-#include "printing.h"
+#include <list>
 
-void split(btree node, int key);
-
-btree new_node(bool leaf, bool root) {
-  btree n = new node();
+fine_btree new_fine_node(bool leaf, bool root) {
+  fine_btree n = new fine_node();
   for (int i = 0; i < 2*ORDER; i++) {
     n->keys[i] = 0;
   }
@@ -18,52 +15,40 @@ btree new_node(bool leaf, bool root) {
   return n;
 }
 
-void print_tree(btree t, int depth) {
-  for (int i = 0; i < t->num_keys; i++) {
+
+btree to_btree(fine_btree t) {
+  btree node = new_node(t->is_leaf, t->is_root);
+  node->num_keys = t->num_keys;
+  for(int i = 0; i < t->num_keys; i++) {
+    node->keys[i] = t->keys[i];
     if (!t->is_leaf) {
-      print_tree(t->children[i], depth + 1);
+      node->children[i] = to_btree(t->children[i]);
     }
-    for (int j = 0; j < depth; j++)
-      printf("   ");
-    printf("%d\n", t->keys[i]);
   }
-  if (!t->is_leaf)
-    print_tree(t->children[t->num_keys], depth + 1);
-  if(depth == 0) {
-    printf("\n");
+  if (!t->is_leaf) {
+    node->children[t->num_keys] = to_btree(t->children[t->num_keys]);
   }
+  return node;
+}
+void print_tree(fine_btree t) {
+  print_tree(to_btree(t), 0);
 }
 
-/************************ INSERTING + HELPER FUNCTIONS ************************/
-/*
- * for a leaf node, insert just the key value into the keys. Don't worry about
- * the children
- */
-void insert_just_key(int* old_keys, int* keys, int val) {
-  int key_count = 0;
-  for (int i = 0; i < 2*ORDER; i++) {
-    if (key_count > 0 && old_keys[key_count-1] < val && val <= old_keys[key_count]) {
-      keys[key_count] = val;
-      key_count++;
-    } else if (key_count == 0 && val < old_keys[0]) {
-      keys[0] = val;
-      key_count++;
+bool node_contains_key(fine_btree t, int key) {
+  for (int i = 0; i < t->num_keys; i++) {
+    if (t->keys[i] == key) {
+      return true;
     }
-    keys[key_count] = old_keys[i];
-    key_count++;
   }
-  if (key_count < 2*ORDER + 1) {
-    keys[key_count] = val;
-  }
+  return false;
 }
-
 /*
  * will insert the new key, and the surrounding pointers to children in the
  * correct positions. Obviously, it has to preserve the order
  */
-void insert_key_into_node(btree node, int key, btree left, btree right) {
+void insert_key_into_node(fine_btree node, int key, fine_btree left, fine_btree right) {
   int* new_keys = new int[2*ORDER];
-  btree* new_children = new btree[2*ORDER + 1];
+  fine_btree* new_children = new fine_btree[2*ORDER + 1];
   int key_count = 0;
   int child_count = 0;
   for (int i = 0; i < node->num_keys; i++) {
@@ -105,13 +90,13 @@ void insert_key_into_node(btree node, int key, btree left, btree right) {
   assert(child_count == key_count + 1);
   node->num_keys++;
   memcpy(node->keys, new_keys, sizeof(int)*node->num_keys);
-  memcpy(node->children, new_children, sizeof(btree)*(node->num_keys+1));
+  memcpy(node->children, new_children, sizeof(fine_btree)*(node->num_keys+1));
 }
 
 /*
  * when splitting a node, decide which child should point to this child.
  */
-void add_child(btree* children, int child_count, btree child, btree new_left, btree new_right) {
+void add_child(fine_btree* children, int child_count, fine_btree child, fine_btree new_left, fine_btree new_right) {
   if (child_count < ORDER + 1) {
     child->parent = new_left;
   } else {
@@ -125,9 +110,9 @@ void add_child(btree* children, int child_count, btree child, btree new_left, bt
  * and properly distribute the children pointers between the two new nodes
  */
 void split_node(int* old_keys, int* keys,
-                btree* old_children, btree* children,
-                int val, btree left_child, btree right_child,
-                btree new_left, btree new_right) {
+                fine_btree* old_children, fine_btree* children,
+                int val, fine_btree left_child, fine_btree right_child,
+                fine_btree new_left, fine_btree new_right) {
   int key_count = 0;
   int child_count = 0;
   for (int i = 0; i < 2*ORDER; i++) {
@@ -166,23 +151,23 @@ void split_node(int* old_keys, int* keys,
  * the main tricky part of insertion. node has been passed a key to insert,
  * either insert it if there's room, or split and percolate it up
  */
-void percolate_up(btree node, int key, btree left_child, btree right_child) {
+void percolate_up(fine_btree node, int key, fine_btree left_child, fine_btree right_child) {
   if (node->is_root) {
     if (node->num_keys == 2*ORDER) {
       /* full root! Gotta split! */
-      btree left = new_node(node->is_leaf, false);
-      btree right = new_node(node->is_leaf, false);
+      fine_btree left = new_fine_node(node->is_leaf, false);
+      fine_btree right = new_fine_node(node->is_leaf, false);
       int* all_keys = new int[2*ORDER + 1];
-      btree* all_children = new btree[2*ORDER + 2];
+      fine_btree* all_children = new fine_btree[2*ORDER + 2];
       split_node(node->keys, all_keys, node->children, all_children,
                               key, left_child, right_child, left, right);
       left->parent = node;
       right->parent = node;
       memcpy(left->keys, all_keys, sizeof(int)*ORDER);
-      memcpy(left->children, all_children, sizeof(btree)*(ORDER+1));
+      memcpy(left->children, all_children, sizeof(fine_btree)*(ORDER+1));
       left->num_keys = ORDER;
       memcpy(right->keys, &all_keys[ORDER + 1], sizeof(int)*ORDER);
-      memcpy(right->children, &all_children[ORDER + 1], sizeof(btree)*(ORDER + 1));
+      memcpy(right->children, &all_children[ORDER + 1], sizeof(fine_btree)*(ORDER + 1));
       right->num_keys = ORDER;
       node->keys[0] = all_keys[ORDER];
       node->children[0] = left;
@@ -197,16 +182,16 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
     if (node->num_keys == 2*ORDER) {
       /* we're full, gotta split and send it upstairs! */
       int* all_keys = new int[2*ORDER + 1];
-      btree* all_children = new btree[2*ORDER + 2];
-      btree left = new_node(node->is_leaf, false);
-      btree right = new_node(node->is_leaf, false);
+      fine_btree* all_children = new fine_btree[2*ORDER + 2];
+      fine_btree left = new_fine_node(node->is_leaf, false);
+      fine_btree right = new_fine_node(node->is_leaf, false);
       split_node(node->keys, all_keys, node->children, all_children,
                               key, left_child, right_child, left, right);
       memcpy(left->keys, all_keys, sizeof(int)*ORDER);
-      memcpy(left->children, all_children, sizeof(btree)*(ORDER+1));
+      memcpy(left->children, all_children, sizeof(fine_btree)*(ORDER+1));
       left->num_keys = ORDER;
       memcpy(right->keys, &all_keys[ORDER + 1], sizeof(int)*ORDER);
-      memcpy(right->children, &all_children[ORDER + 1], sizeof(btree)*(ORDER + 1));
+      memcpy(right->children, &all_children[ORDER + 1], sizeof(fine_btree)*(ORDER + 1));
       right->num_keys = ORDER;
       percolate_up(node->parent, all_keys[ORDER], left, right);
     } else {
@@ -219,10 +204,10 @@ void percolate_up(btree node, int key, btree left_child, btree right_child) {
 /* distribute keys evenly between two new nodes, and percolate the middle
  * element upstairs
  */
-void split(btree node, int key) {
+void split(fine_btree node, int key) {
   /* here we assume node->num_keys == 2*ORDER, and that node is a leaf */
-  btree left = new_node(node->is_leaf, false);
-  btree right = new_node(node->is_leaf, false);
+  fine_btree left = new_fine_node(node->is_leaf, false);
+  fine_btree right = new_fine_node(node->is_leaf, false);
   int* all_keys = new int[2*ORDER + 1];
   insert_just_key(node->keys, all_keys, key);
   /* now we have all of them in order */
@@ -237,46 +222,57 @@ void split(btree node, int key) {
   percolate_up(node->parent, all_keys[ORDER], left, right);
 }
 
-bool node_contains_key(btree t, int key) {
-  for (int i = 0; i < t->num_keys; i++) {
-    if (t->keys[i] == key) {
-      return true;
-    }
+void unlock_all(std::list<fine_btree> locked) {
+  for (std::list<fine_btree>::iterator cur = locked.begin(); cur != locked.end(); cur++) {
+    //printf("unlocked!\n");
+    (*cur)->lock.unlock();
   }
-  return false;
 }
 
-/*
- * the main function for insertion. Find the place we need to insert it,
- * then either put it in, or do a split
- */
-void insert_key(btree t, int key) {
+void insert_key(fine_btree t, int key, std::list<fine_btree> locked) {
+  //assume you're locked if not the root
+  if (t->is_root) {
+    //printf("1\n");
+    t->lock.lock();
+    locked.push_front(t);
+    //printf("2\n");
+  }
   if (t->is_leaf && !t->is_root) {
     if (node_contains_key(t, key)) {
+      unlock_all(locked);
       return;
     }
     if (t->num_keys < 2*ORDER) {
       /* there's room for another key here */
-      insert_key_into_node(t, key, new_node(true, false), new_node(true, false));
+      insert_key_into_node(t, key, new_fine_node(true, false), new_fine_node(true, false));
+      unlock_all(locked);
+      return;
     } else { /* we have to split */
       split(t, key);
+      unlock_all(locked);
+      return;
     }
   } else if (t->is_leaf && t->is_root) {
     if (node_contains_key(t, key)) {
+      unlock_all(locked);
       return;
     }
     if (t->num_keys < 2*ORDER) {
       /* there's room for another key here */
-      insert_key_into_node(t, key, new_node(true, false), new_node(true, false));
+      insert_key_into_node(t, key, new_fine_node(true, false), new_fine_node(true, false));
+      unlock_all(locked);
+      return;
     } else { /* we have to split */
-      btree fake = new_node(true, false);
+      fine_btree fake = new_fine_node(true, false);
       fake->parent = t;
       memcpy(fake->keys, t->keys, sizeof(int)*t->num_keys);
-      memcpy(fake->children, t->children, sizeof(btree)*(t->num_keys+1));
+      memcpy(fake->children, t->children, sizeof(fine_btree)*(t->num_keys+1));
       fake->num_keys = t->num_keys;
       t->num_keys = 0;
       t->is_leaf = false;
       split(fake, key);
+      unlock_all(locked);
+      return;
     }
   } else {
     int i = 0;
@@ -284,19 +280,44 @@ void insert_key(btree t, int key) {
       i++;
     }
     if (i < t->num_keys && t->keys[i] == key) {
+      /* the thing we're trying to insert is already here */
+      unlock_all(locked);
       return;
     }
-    insert_key(t->children[i], key);
+    if (t->children[i]->num_keys < 2*ORDER) {
+      /* my child has room, so won't overflow to me */
+      //printf("3\n");
+      t->children[i]->lock.lock();
+      //printf("4\n");
+      unlock_all(locked);
+      locked.clear();
+      locked.push_front(t->children[i]);
+      insert_key(t->children[i], key);
+      unlock_all(locked);
+      return;
+    } else {
+      //printf("5\n");
+      t->children[i]->lock.lock();
+      //printf("6\n");
+      locked.push_front(t->children[i]);
+      insert_key(t->children[i], key);
+      unlock_all(locked);
+      return;
+    }
   }
 }
 
-/******************************* SEARCHING *******************************/
+void insert_key(fine_btree t, int key) {
+  std::list<fine_btree> locked;
+  insert_key(t, key, locked);
+}
 
-/*
- * the main function for deletion. If the key is in the tree, delete it
- * returns true for success, false if the key was not there
- */
-bool contains_key(btree t, int key) {
+bool contains_key(fine_btree t, int key) {
+  if (t->is_root) {
+    //printf("9\n");
+    t->lock.lock();
+    //printf("10\n");
+  }
   int i = 0;
   while (i < t->num_keys && key > t->keys[i]) {
     i++;
@@ -305,85 +326,32 @@ bool contains_key(btree t, int key) {
   if (i == t->num_keys) {
     if (!t->is_leaf) {
       /* there are children, search them */
+      t->children[t->num_keys]->lock.lock();
+      t->lock.unlock();
       return contains_key(t->children[t->num_keys], key);
     } else {
       /* got to the end of a leaf, and didn't find it */
+      t->lock.unlock();
       return false;
     }
   } else {
     if (key == t->keys[i]) {
+      t->lock.unlock();
       return true;
     } else {
       /* keys[i-1] < key < keys[i] */
       if(!t->is_leaf) {
         /* there are children, search them */
+        //printf("7\n");
+        t->children[i]->lock.lock();
+        //printf("8\n");
+        t->lock.unlock();
         return contains_key(t->children[i], key);
       } else {
         /* this is a leaf, and it's not here :( */
+        t->lock.unlock();
         return false;
       }
     }
   }
 }
-
-/****************************** COMPARING (EQ) *******************************/
-
-/*
- * return true if t1 is a subset of t2, and false otherwise
- */
-bool tree_subset(btree t1, btree t2) {
-  for (int i = 0; i < t1->num_keys; i++) {
-    if (!contains_key(t2, t1->keys[i])) {
-      print_tree(t2, 0);
-      printf("tree doesn't contain: %d\n", t1->keys[i]);
-      return false;
-    }
-    if (!t1->is_leaf && !tree_subset(t1->children[i], t2)) {
-      return false;
-    }
-  }
-  if (!t1->is_leaf && !tree_subset(t1->children[t1->num_keys], t2)) {
-    return false;
-  }
-  return true;
-}
-
-/*
- * takes two trees, and returns true if they are equal, false otherwise
- */
-bool tree_eq(btree t1, btree t2) {
-  return tree_subset(t1, t2) && tree_subset(t2, t1);
-}
-/*
- * creates this tree:
- *   1
- *   3
- * 6
- *   7
- * 9
- *   13
- */
-btree create_test_tree() {
-  btree root = new_node(false, true);
-  root->keys[0] = 6;
-  root->keys[1] = 9;
-  root->num_keys = 2;
-  btree left = new_node(true, false);
-  left->keys[0] = 1;
-  left->keys[1] = 3;
-  left->num_keys = 2;
-  left->parent = root;
-  btree middle = new_node(true, false);
-  middle->keys[0] = 7;
-  middle->num_keys = 1;
-  middle->parent = root;
-  btree right = new_node(true, false);
-  right->keys[0] = 13;
-  right->num_keys = 1;
-  right->parent = root;
-  root->children[0] = left;
-  root->children[1] = middle;
-  root->children[2] = right;
-  return root;
-}
-
